@@ -46,16 +46,26 @@ public partial class Login : System.Web.UI.Page
     }
     protected void btnsend_Click(object sender, EventArgs e)
     {
+        lbresult.Text = string.Empty;
+        Page.Validate("ForgotPassword");
+        if (!Page.IsValid || string.IsNullOrWhiteSpace(txtemail.Text))
+        {
+            lbresult.CssClass = "login-error recovery-result is-error";
+            lbresult.Text = "Enter your Login ID.";
+            txtemail.Focus();
+            return;
+        }
 
         try
         {
 
-            Session["email"] = txtemail.Text;
+            string loginId = txtemail.Text.Trim();
+            Session["email"] = loginId;
 
             SqlDataAdapter adp = new SqlDataAdapter("select UserName,LoginID,[Password],Email from [dbo].[tbl_UserLogin] where LoginID=@LoginID", con);
             con.Open();
 
-            adp.SelectCommand.Parameters.AddWithValue("@LoginID", txtemail.Text);
+            adp.SelectCommand.Parameters.AddWithValue("@LoginID", loginId);
 
             adp.Fill(dt);
 
@@ -65,12 +75,12 @@ public partial class Login : System.Web.UI.Page
                 #region Audit Log Manage
                 AuditLog objAuditLog = new AuditLog();
 
-                objAuditLog.UserName = txtemail.Text;
+                objAuditLog.UserName = loginId;
                 objAuditLog.Role = "";
                 objAuditLog.Action = "Forgot Password";
                 objAuditLog.PageName = "Forgot Password";
                 objAuditLog.PageUrl = HttpContext.Current.Request.Url.AbsoluteUri;
-                objAuditLog.Description = "Successfully sent reset link on  your mail ,please check once! Thank you.";
+                objAuditLog.Description = "Account recovery details sent to the registered email address.";
                 objAuditLog.AuditLogManage();
                 #endregion
 
@@ -80,37 +90,44 @@ public partial class Login : System.Web.UI.Page
                 ViewState["UPassword"] = Decrypt(dt.Rows[0]["Password"].ToString());
                 ViewState["UEmail"] = dt.Rows[0]["Email"].ToString();
                 SendEmail();
-                lbresult.ForeColor = System.Drawing.Color.Green;
-                lbresult.Text = "Successfully sent reset link on  your mail ,please check once! Thank you.";
-                con.Close();
+                lbresult.CssClass = "login-error recovery-result is-success";
+                lbresult.Text = "Recovery details were sent to the registered email address.";
 
                 txtemail.Text = "";
 
             }
             else
             {
-                lbresult.ForeColor = System.Drawing.Color.Red;
-                lbresult.Text = "Please enter vaild user name,please check once! Thank you.";
+                lbresult.CssClass = "login-error recovery-result is-error";
+                lbresult.Text = "Check the Login ID and try again.";
 
                 #region Audit Log Manage
                 AuditLog objAuditLog = new AuditLog();
 
-                objAuditLog.UserName = txtemail.Text;
+                objAuditLog.UserName = loginId;
                 objAuditLog.Role = "";
                 objAuditLog.Action = "Forgot Password";
                 objAuditLog.PageName = "Forgot Password";
                 objAuditLog.PageUrl = HttpContext.Current.Request.Url.AbsoluteUri;
-                objAuditLog.Description = "Please enter vaild user name ,please check once! Thank you.";
+                objAuditLog.Description = "Account recovery requested with an unrecognized Login ID.";
                 objAuditLog.AuditLogManage();
                 #endregion
 
             }
-            con.Close();
         }
 
         catch (Exception ex)
         {
-
+            Trace.Warn("ForgotPassword", "Unable to complete account recovery.", ex);
+            lbresult.CssClass = "login-error recovery-result is-error";
+            lbresult.Text = "Unable to process your request right now. Please try again shortly.";
+        }
+        finally
+        {
+            if (con.State != ConnectionState.Closed)
+            {
+                con.Close();
+            }
         }
 
     }
@@ -153,7 +170,8 @@ public partial class Login : System.Web.UI.Page
 
         catch (Exception ex)
         {
-
+            Trace.Warn("ForgotPassword", "Unable to send the recovery email.", ex);
+            throw;
         }
     }
 

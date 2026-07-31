@@ -9,7 +9,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/png" href="images/tabIcon.png" sizes="500x302" />
     <link href="~/Content/bootstrap.min.css" rel="stylesheet" type="text/css" />
-    <link href="~/css/Login.css?v=20260731.1" rel="stylesheet" type="text/css" media="all" runat="server" />
+    <link href="~/css/Login.css?v=20260731.2" rel="stylesheet" type="text/css" media="all" runat="server" />
 </head>
 <body class="login-page">
     <main class="login-shell">
