@@ -1,0 +1,29 @@
+* text=auto
+
+*.aspx text eol=crlf
+*.ascx text eol=crlf
+*.master text eol=crlf
+*.cs text eol=crlf
+*.config text eol=crlf
+*.css text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+
+*.dll binary
+*.exe binary
+*.pdf binary
+*.doc binary
+*.docx binary
+*.xls binary
+*.xlsx binary
+*.jpg binary
+*.jpeg binary
+*.png binary
+*.gif binary
+*.ico binary
+*.ttf binary
+*.eot binary
+*.woff binary
+*.woff2 binary
+*.zip binary
