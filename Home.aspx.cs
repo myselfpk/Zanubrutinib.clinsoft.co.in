@@ -31,7 +31,11 @@ public partial class _Default : Page
 
     protected void Page_Load(object sender, EventArgs e)
     {
+        if (IsPostBack)
+            return;
+
         BindDashboardHeader();
+        ResetMetricLabels();
 
         string userName = CurrentUserName;
         if (String.IsNullOrWhiteSpace(userName))
@@ -43,11 +47,6 @@ public partial class _Default : Page
         }
 
         BindSiteDetails(userName);
-
-        if (IsPostBack)
-            return;
-
-        ResetMetricLabels();
         BindChart1(userName);
         BindChart2(userName);
         BindChart3(userName);
@@ -440,16 +439,15 @@ ORDER BY signature.SITENUM;";
         script.Append("<script type=\"text/javascript\">(function(){");
         script.Append("var chartRows=").Append(rowsJson).Append(";");
         script.Append("var chartColors=").Append(colorsJson).Append(";");
+        script.Append("var resizeTimer;");
         script.Append("function drawDashboardChart(){");
         script.Append("var element=document.getElementById(").Append(elementIdJson).Append(");");
         script.Append("if(!element||!window.google||!google.visualization){return;}");
-        script.Append("var chartWidth=Math.floor(element.clientWidth||0);");
-        script.Append("if(chartWidth<=0){return;}");
-        script.Append("var compact=window.innerWidth<768||chartWidth<520;");
+        script.Append("var compact=window.innerWidth<576;");
         script.Append("var data=google.visualization.arrayToDataTable(chartRows);");
         script.Append("var options={");
         script.Append("backgroundColor:'transparent',");
-        script.Append("width:chartWidth,");
+        script.Append("width:Math.max(element.clientWidth||0,240),");
         script.Append("height:compact?280:320,");
         script.Append("colors:chartColors,");
         script.Append("fontName:'Segoe UI',");
@@ -470,9 +468,13 @@ ORDER BY signature.SITENUM;";
         script.Append("if(title){title.textContent='Chart service unavailable';}");
         script.Append("if(message){message.textContent='Refresh the page to try loading this chart again.';}");
         script.Append("}");
-        script.Append("window.clinsoftDashboardCharts=window.clinsoftDashboardCharts||[];");
-        script.Append("window.clinsoftDashboardCharts.push(drawDashboardChart);");
+        script.Append("function queueDashboardChart(){window.clearTimeout(resizeTimer);resizeTimer=window.setTimeout(drawDashboardChart,160);}");
         script.Append("if(window.google&&window.google.charts){google.charts.setOnLoadCallback(drawDashboardChart);}else{markDashboardChartUnavailable();}");
+        script.Append("if(window.addEventListener){window.addEventListener('resize',queueDashboardChart);}");
+        script.Append("var dashboardWrapper=document.querySelector('.content-wrapper');");
+        script.Append("if(dashboardWrapper&&dashboardWrapper.addEventListener){dashboardWrapper.addEventListener('transitionend',queueDashboardChart);}");
+        script.Append("var sidebarToggle=document.querySelector('.sidebar-toggle');");
+        script.Append("if(sidebarToggle&&sidebarToggle.addEventListener){sidebarToggle.addEventListener('click',function(){window.setTimeout(queueDashboardChart,340);});}");
         script.Append("})();</script>");
 
         target.Text = accessibleTable + script.ToString();
