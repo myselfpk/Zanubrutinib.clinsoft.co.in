@@ -1,75 +1,182 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Web;
-using System.Web.UI;
-using System.Web.UI.WebControls;
+using System.Configuration;
 using System.Data;
 using System.Data.SqlClient;
+using System.Globalization;
 using System.Text;
-using System.Configuration;
-using System.Web.Services;
+using System.Web;
+using System.Web.Script.Serialization;
+using System.Web.UI;
+using System.Web.UI.WebControls;
 
-public partial class _Default : System.Web.UI.Page
+public partial class _Default : Page
 {
-    StringBuilder str = new StringBuilder();
-    SqlConnection conn = new SqlConnection
-(ConfigurationManager.ConnectionStrings["constr"].ToString());
-    SqlCommand cmd;
+    private const string DashboardDataErrorMessage =
+        "Some dashboard data could not be loaded. Please refresh the page or contact the study administrator.";
+
+    private string ConnectionString
+    {
+        get
+        {
+            ConnectionStringSettings settings = ConfigurationManager.ConnectionStrings["constr"];
+            return settings == null ? String.Empty : settings.ConnectionString;
+        }
+    }
+
+    private string CurrentUserName
+    {
+        get { return Convert.ToString(Session["UserName"], CultureInfo.InvariantCulture); }
+    }
+
     protected void Page_Load(object sender, EventArgs e)
     {
-        if (Page.IsPostBack == false)
+        if (IsPostBack)
+            return;
+
+        BindDashboardHeader();
+        ResetMetricLabels();
+
+        string userName = CurrentUserName;
+        if (String.IsNullOrWhiteSpace(userName))
         {
-            BindSiteDetails();
-            BindChart1();
-            BindChart2();
-            BindChart3();
-            BindChart4();
+            pnlSiteSummary.Visible = false;
+            ShowDashboardNotice("Your session details are unavailable. Please sign in again to load dashboard data.");
+            MarkDashboardUnavailable();
+            return;
         }
 
+        if (IsSessionExplicitlyInactive())
+        {
+            pnlSiteSummary.Visible = false;
+            ShowDashboardNotice("This account is inactive. Contact the study administrator if you need access.");
+            MarkDashboardUnavailable();
+            return;
+        }
+
+        try
+        {
+            if (!IsCurrentUserActive(userName))
+            {
+                pnlSiteSummary.Visible = false;
+                ShowDashboardNotice("This account is inactive or unavailable. Contact the study administrator if you need access.");
+                MarkDashboardUnavailable();
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            pnlSiteSummary.Visible = false;
+            HandleDashboardError("Account validation", exception);
+            MarkDashboardUnavailable();
+            return;
+        }
+
+        BindSiteDetails(userName);
+        BindChart1(userName);
+        BindChart2(userName);
+        BindChart3(userName);
+        BindChart4(userName);
     }
-    private void BindSiteDetails()
+
+    private void BindDashboardHeader()
+    {
+        string userName = CurrentUserName;
+        lblDashboardUser.Text = HttpUtility.HtmlEncode(
+            String.IsNullOrWhiteSpace(userName) ? "Study team" : userName.Trim());
+
+        DateTime updatedAt = DateTime.Now;
+        try
+        {
+            TimeZoneInfo indiaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+            updatedAt = TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, indiaTimeZone);
+        }
+        catch (TimeZoneNotFoundException)
+        {
+            // The server's local time is used when the configured study time zone is unavailable.
+        }
+        catch (InvalidTimeZoneException)
+        {
+            // The server's local time is used when the configured study time zone is invalid.
+        }
+
+        lblLastUpdated.Text = HttpUtility.HtmlEncode(
+            updatedAt.ToString("dd MMM yyyy, hh:mm tt", CultureInfo.InvariantCulture));
+    }
+
+    private void ResetMetricLabels()
+    {
+        lblScreenedSubjects.Text = "0";
+        lblCompletedSubjects.Text = "0";
+        lblOpenQueries.Text = "0";
+        lblSignedPages.Text = "0";
+    }
+
+    private bool IsSessionExplicitlyInactive()
+    {
+        string activeFlag = Convert.ToString(Session["ActiveFlag"], CultureInfo.InvariantCulture);
+        bool isActive;
+        return Boolean.TryParse(activeFlag, out isActive) && !isActive;
+    }
+
+    private bool IsCurrentUserActive(string userName)
+    {
+        const string sql = @"
+SELECT CASE WHEN EXISTS
+(
+    SELECT 1
+    FROM dbo.tbl_UserLogin
+    WHERE UserName = @UserName
+      AND ISNULL(IsActive, 0) = 1
+      AND ISNULL(IsDelete, 0) = 0
+)
+THEN CAST(1 AS BIT)
+ELSE CAST(0 AS BIT)
+END;";
+
+        using (SqlConnection connection = CreateConnection())
+        using (SqlCommand command = new SqlCommand(sql, connection))
+        {
+            command.Parameters.Add("@UserName", SqlDbType.NVarChar, 250).Value = userName;
+            connection.Open();
+            return Convert.ToBoolean(command.ExecuteScalar(), CultureInfo.InvariantCulture);
+        }
+    }
+
+    private void BindSiteDetails(string userName)
     {
         try
         {
-            var userName = Convert.ToString(Session["UserName"]);
-
-            if (string.IsNullOrWhiteSpace(userName))
-            {
-                pnlSiteSummary.Visible = false;
-                return;
-            }
-
-            var info = GetSiteDetailsForCRC(userName);
-
+            SiteInfo info = GetSiteDetailsForCRC(userName);
             if (info == null)
             {
-                // Not CRC OR no mapping found => hide the whole view
                 pnlSiteSummary.Visible = false;
                 return;
             }
 
             pnlSiteSummary.Visible = true;
-            lblSiteNumber.Text = string.IsNullOrWhiteSpace(info.SiteNumber) ? "-" : info.SiteNumber;
-            lblPIName.Text = string.IsNullOrWhiteSpace(info.PIName) ? "-" : info.PIName;
-            lblSiteAddress.Text = string.IsNullOrWhiteSpace(info.SiteAddress) ? "-" : info.SiteAddress;
+            lblSiteNumber.Text = EncodeDisplayValue(info.SiteNumber);
+            lblPIName.Text = EncodeDisplayValue(info.PIName);
+            lblSiteAddress.Text = EncodeDisplayValue(info.SiteAddress);
         }
-        catch
+        catch (Exception exception)
         {
             pnlSiteSummary.Visible = false;
+            HandleDashboardError("Site details", exception);
         }
     }
+
     private SiteInfo GetSiteDetailsForCRC(string userName)
     {
         const string sql = @"
 SELECT TOP (1)
-    CAST(s.CenterNumber AS VARCHAR(50))  AS SiteNumber,
-    CAST(s.PIName AS VARCHAR(200))       AS PIName,
-    CAST(s.CenterAddress AS VARCHAR(500)) AS SiteAddress
-FROM dbo.tbl_UserLogin ul
-INNER JOIN dbo.tblEnrollUsersWithSite eu
+    s.CenterNumber AS SiteNumber,
+    s.PIName AS PIName,
+    s.CenterAddress AS SiteAddress
+FROM dbo.tbl_UserLogin AS ul
+INNER JOIN dbo.tblEnrollUsersWithSite AS eu
     ON ul.UserName = eu.UserName
-INNER JOIN dbo.Site s
+INNER JOIN dbo.Site AS s
     ON LTRIM(RTRIM(s.CenterNumber)) = LTRIM(RTRIM(eu.CenterNumber))
 WHERE ul.UserName = @UserName
   AND ul.UserRole = 'Clinical Research Coordinator'
@@ -77,226 +184,491 @@ WHERE ul.UserName = @UserName
   AND ISNULL(ul.IsDelete, 0) = 0
 ORDER BY s.Id DESC;";
 
-        using (var cmd = new SqlCommand(sql, conn))
+        using (SqlConnection connection = CreateConnection())
+        using (SqlCommand command = new SqlCommand(sql, connection))
         {
-            cmd.Parameters.Add("@UserName", SqlDbType.VarChar, 200).Value = userName ?? "";
+            command.Parameters.Add("@UserName", SqlDbType.NVarChar, 250).Value = userName;
+            connection.Open();
 
-            if (conn.State != ConnectionState.Open)
-                conn.Open();
-
-            using (var rdr = cmd.ExecuteReader(CommandBehavior.SingleRow))
+            using (SqlDataReader reader = command.ExecuteReader(CommandBehavior.SingleRow))
             {
-                if (!rdr.Read())
+                if (!reader.Read())
                     return null;
 
                 return new SiteInfo
                 {
-                    SiteNumber = rdr["SiteNumber"] as string,
-                    PIName = rdr["PIName"] as string,
-                    SiteAddress = rdr["SiteAddress"] as string
+                    SiteNumber = Convert.ToString(reader["SiteNumber"], CultureInfo.InvariantCulture),
+                    PIName = Convert.ToString(reader["PIName"], CultureInfo.InvariantCulture),
+                    SiteAddress = Convert.ToString(reader["SiteAddress"], CultureInfo.InvariantCulture)
                 };
             }
         }
     }
-    private class SiteInfo
+
+    private DataTable GetData1(string userName)
+    {
+        const string sql = @"
+SELECT
+    assigned.CenterNumber AS [Site Number],
+    COUNT(DISTINCT subject.SUBNUM) AS [Screened Subjects],
+    COUNT(DISTINCT CASE WHEN completion.EOSPER = 'No' THEN subject.SUBNUM END) AS [Subject Withdrawal],
+    COUNT(DISTINCT CASE WHEN completion.EOSPER = 'Yes' THEN subject.SUBNUM END) AS [Completed Subjects]
+FROM
+(
+    SELECT DISTINCT CenterNumber
+    FROM dbo.tblEnrollUsersWithSite
+    WHERE UserName = @UserName
+) AS assigned
+LEFT JOIN dbo.Subject AS subject
+    ON subject.SITENUM = assigned.CenterNumber
+LEFT JOIN [Add].[EndOfStudyLog] AS completion
+    ON completion.SUBNUM = subject.SUBNUM
+   AND completion.SITENUM = subject.SITENUM
+GROUP BY assigned.CenterNumber
+ORDER BY assigned.CenterNumber;";
+
+        return ExecuteDashboardQuery(sql, userName);
+    }
+
+    private void BindChart1(string userName)
+    {
+        lt1.Text = String.Empty;
+
+        try
+        {
+            DataTable data = GetData1(userName);
+            lblScreenedSubjects.Text = FormatCount(SumColumn(data, "Screened Subjects"));
+            lblCompletedSubjects.Text = FormatCount(SumColumn(data, "Completed Subjects"));
+
+            RenderColumnChart(
+                lt1,
+                "chart_div1",
+                data,
+                "Site Number",
+                "Site",
+                new[] { "Screened Subjects", "Subject Withdrawal", "Completed Subjects" },
+                new[] { "Screened", "Withdrawn", "Completed" },
+                new[] { "#0f766e", "#c2413b", "#2f855a" },
+                "Recruitment totals by assigned study site");
+        }
+        catch (Exception exception)
+        {
+            lblScreenedSubjects.Text = "—";
+            lblCompletedSubjects.Text = "—";
+            MarkChartUnavailable(lt1, "chart_div1");
+            HandleDashboardError("Recruitment chart", exception);
+        }
+    }
+
+    private DataTable GetData2(string userName)
+    {
+        const string sql = @"
+SELECT
+    assigned.CenterNumber AS [Site],
+    SUM(CASE WHEN query.[Status] = 'Open' THEN 1 ELSE 0 END) AS [Open Queries],
+    SUM(CASE WHEN query.[Status] = 'Query Responded' THEN 1 ELSE 0 END) AS [Responded Queries],
+    SUM(CASE WHEN query.[Status] = 'Close' THEN 1 ELSE 0 END) AS [Close Queries]
+FROM
+(
+    SELECT DISTINCT CenterNumber
+    FROM dbo.tblEnrollUsersWithSite
+    WHERE UserName = @UserName
+) AS assigned
+LEFT JOIN dbo.tblQuery AS query
+    ON query.Site = assigned.CenterNumber
+GROUP BY assigned.CenterNumber
+ORDER BY assigned.CenterNumber;";
+
+        return ExecuteDashboardQuery(sql, userName);
+    }
+
+    private void BindChart2(string userName)
+    {
+        lt2.Text = String.Empty;
+
+        try
+        {
+            DataTable data = GetData2(userName);
+            lblOpenQueries.Text = FormatCount(SumColumn(data, "Open Queries"));
+
+            RenderColumnChart(
+                lt2,
+                "chart_div2",
+                data,
+                "Site",
+                "Site",
+                new[] { "Open Queries", "Responded Queries", "Close Queries" },
+                new[] { "Open", "Responded", "Closed" },
+                new[] { "#c2413b", "#d97706", "#2f855a" },
+                "Query status totals by assigned study site");
+        }
+        catch (Exception exception)
+        {
+            lblOpenQueries.Text = "—";
+            MarkChartUnavailable(lt2, "chart_div2");
+            HandleDashboardError("Query chart", exception);
+        }
+    }
+
+    private DataTable GetData3(string userName)
+    {
+        const string sql = @"
+SELECT
+    assigned.CenterNumber AS [Site],
+    COUNT(signature.Id) AS [TotalPages],
+    SUM(CASE WHEN signature.PISIGN = 0 THEN 1 ELSE 0 END) AS [UnsignedPages],
+    SUM(CASE WHEN signature.PISIGN = 1 THEN 1 ELSE 0 END) AS [SignedPages]
+FROM
+(
+    SELECT DISTINCT CenterNumber
+    FROM dbo.tblEnrollUsersWithSite
+    WHERE UserName = @UserName
+) AS assigned
+LEFT JOIN dbo.tblPISignature AS signature
+    ON signature.SITENUM = assigned.CenterNumber
+GROUP BY assigned.CenterNumber
+ORDER BY assigned.CenterNumber;";
+
+        return ExecuteDashboardQuery(sql, userName);
+    }
+
+    private void BindChart3(string userName)
+    {
+        lt3.Text = String.Empty;
+
+        try
+        {
+            DataTable data = GetData3(userName);
+            lblSignedPages.Text = FormatCount(SumColumn(data, "SignedPages"));
+
+            RenderColumnChart(
+                lt3,
+                "chart_div3",
+                data,
+                "Site",
+                "Site",
+                new[] { "TotalPages", "UnsignedPages", "SignedPages" },
+                new[] { "Total pages", "Unsigned", "Signed" },
+                new[] { "#526d82", "#d97706", "#2f855a" },
+                "PI signature totals by assigned study site");
+        }
+        catch (Exception exception)
+        {
+            lblSignedPages.Text = "—";
+            MarkChartUnavailable(lt3, "chart_div3");
+            HandleDashboardError("PI signature chart", exception);
+        }
+    }
+
+    private DataTable GetData4(string userName)
+    {
+        const string sql = @"
+SELECT
+    assigned.CenterNumber AS [Site],
+    COUNT(signature.Id) AS [TotalPages],
+    SUM(CASE WHEN signature.EntryStatus = 'Submit' THEN 1 ELSE 0 END) AS [Submit],
+    SUM(CASE WHEN signature.EntryStatus = 'Save' THEN 1 ELSE 0 END) AS [Save],
+    SUM(CASE WHEN signature.LockStatus = 'SDV' THEN 1 ELSE 0 END) AS [SDV],
+    SUM(CASE WHEN signature.LockStatus = 'Unlocked' THEN 1 ELSE 0 END) AS [Unlocked],
+    SUM(CASE WHEN signature.LockStatus = 'Locked' THEN 1 ELSE 0 END) AS [Locked]
+FROM
+(
+    SELECT DISTINCT CenterNumber
+    FROM dbo.tblEnrollUsersWithSite
+    WHERE UserName = @UserName
+) AS assigned
+LEFT JOIN dbo.tblPISignature AS signature
+    ON signature.SITENUM = assigned.CenterNumber
+GROUP BY assigned.CenterNumber
+ORDER BY assigned.CenterNumber;";
+
+        return ExecuteDashboardQuery(sql, userName);
+    }
+
+    private void BindChart4(string userName)
+    {
+        lt4.Text = String.Empty;
+
+        try
+        {
+            DataTable data = GetData4(userName);
+
+            RenderColumnChart(
+                lt4,
+                "chart_div4",
+                data,
+                "Site",
+                "Site",
+                new[] { "TotalPages", "Submit", "Save", "SDV", "Unlocked", "Locked" },
+                new[] { "Total pages", "Submitted", "Saved", "SDV", "Unlocked", "Locked" },
+                new[] { "#526d82", "#0f766e", "#d97706", "#2563a8", "#7c3aed", "#c2413b" },
+                "eCRF page status totals by assigned study site");
+        }
+        catch (Exception exception)
+        {
+            MarkChartUnavailable(lt4, "chart_div4");
+            HandleDashboardError("eCRF page chart", exception);
+        }
+    }
+
+    private DataTable ExecuteDashboardQuery(string commandText, string userName)
+    {
+        DataTable table = new DataTable();
+
+        using (SqlConnection connection = CreateConnection())
+        using (SqlCommand command = new SqlCommand(commandText, connection))
+        using (SqlDataAdapter adapter = new SqlDataAdapter(command))
+        {
+            command.Parameters.Add("@UserName", SqlDbType.NVarChar, 250).Value = userName;
+            adapter.Fill(table);
+        }
+
+        return table;
+    }
+
+    private SqlConnection CreateConnection()
+    {
+        if (String.IsNullOrWhiteSpace(ConnectionString))
+            throw new ConfigurationErrorsException("The 'constr' database connection string is missing.");
+
+        return new SqlConnection(ConnectionString);
+    }
+
+    private void RenderColumnChart(
+        Literal target,
+        string elementId,
+        DataTable table,
+        string categoryColumn,
+        string categoryHeader,
+        string[] valueColumns,
+        string[] valueHeaders,
+        string[] colors,
+        string accessibleCaption)
+    {
+        if (table == null || table.Rows.Count == 0)
+        {
+            target.Text = String.Empty;
+            return;
+        }
+
+        if (valueColumns == null || valueHeaders == null || valueColumns.Length != valueHeaders.Length)
+            throw new ArgumentException("Chart columns and headings must have matching lengths.");
+
+        List<object[]> chartRows = new List<object[]>();
+        object[] headerRow = new object[valueHeaders.Length + 1];
+        headerRow[0] = categoryHeader;
+
+        for (int columnIndex = 0; columnIndex < valueHeaders.Length; columnIndex++)
+            headerRow[columnIndex + 1] = valueHeaders[columnIndex];
+
+        chartRows.Add(headerRow);
+
+        foreach (DataRow row in table.Rows)
+        {
+            object[] chartRow = new object[valueColumns.Length + 1];
+            chartRow[0] = Convert.ToString(row[categoryColumn], CultureInfo.InvariantCulture);
+
+            for (int columnIndex = 0; columnIndex < valueColumns.Length; columnIndex++)
+                chartRow[columnIndex + 1] = ToLong(row[valueColumns[columnIndex]]);
+
+            chartRows.Add(chartRow);
+        }
+
+        JavaScriptSerializer serializer = new JavaScriptSerializer();
+        string rowsJson = SerializeForInlineScript(serializer, chartRows);
+        string colorsJson = SerializeForInlineScript(serializer, colors ?? new string[0]);
+        string elementIdJson = SerializeForInlineScript(serializer, elementId);
+        string accessibleTable = BuildAccessibleChartTable(
+            elementId + "_data",
+            accessibleCaption,
+            chartRows);
+
+        StringBuilder script = new StringBuilder();
+        script.Append("<script type=\"text/javascript\">(function(){");
+        script.Append("var chartRows=").Append(rowsJson).Append(";");
+        script.Append("var chartColors=").Append(colorsJson).Append(";");
+        script.Append("var resizeTimer;");
+        script.Append("function drawDashboardChart(){");
+        script.Append("var element=document.getElementById(").Append(elementIdJson).Append(");");
+        script.Append("if(!element||!window.google||!google.visualization){return;}");
+        script.Append("var compact=window.innerWidth<576;");
+        script.Append("var data=google.visualization.arrayToDataTable(chartRows);");
+        script.Append("var options={");
+        script.Append("backgroundColor:'transparent',");
+        script.Append("width:Math.max(element.clientWidth||0,240),");
+        script.Append("height:compact?280:340,");
+        script.Append("colors:chartColors,");
+        script.Append("fontName:'Segoe UI',");
+        script.Append("legend:{position:'top',alignment:'center',maxLines:3,textStyle:{color:'#334e68',fontSize:compact?10:11}},");
+        script.Append("chartArea:{left:compact?48:58,top:64,width:compact?'76%':'80%',height:compact?'60%':'64%'},");
+        script.Append("bar:{groupWidth:compact?'68%':'58%'},");
+        script.Append("hAxis:{textStyle:{color:'#526d82',fontSize:compact?10:11},slantedText:compact,slantedTextAngle:35,baselineColor:'#d5dfdf'},");
+        script.Append("vAxis:{minValue:0,format:'0',textStyle:{color:'#526d82',fontSize:10},gridlines:{color:'#edf2f2'},minorGridlines:{color:'transparent'},baselineColor:'#d5dfdf'},");
+        script.Append("tooltip:{textStyle:{color:'#243b53',fontSize:12}}");
+        script.Append("};");
+        script.Append("new google.visualization.ColumnChart(element).draw(data,options);");
+        script.Append("}");
+        script.Append("function markDashboardChartUnavailable(){");
+        script.Append("var element=document.getElementById(").Append(elementIdJson).Append(");");
+        script.Append("if(!element){return;}");
+        script.Append("var title=element.querySelector('.chart-placeholder strong');");
+        script.Append("var message=element.querySelector('.chart-placeholder span');");
+        script.Append("if(title){title.textContent='Chart service unavailable';}");
+        script.Append("if(message){message.textContent='Refresh the page to try loading this chart again.';}");
+        script.Append("}");
+        script.Append("function queueDashboardChart(){window.clearTimeout(resizeTimer);resizeTimer=window.setTimeout(drawDashboardChart,160);}");
+        script.Append("if(window.google&&window.google.charts){google.charts.setOnLoadCallback(drawDashboardChart);}else{markDashboardChartUnavailable();}");
+        script.Append("if(window.addEventListener){window.addEventListener('resize',queueDashboardChart);}");
+        script.Append("var dashboardWrapper=document.querySelector('.content-wrapper.dashboard-page');");
+        script.Append("if(dashboardWrapper&&dashboardWrapper.addEventListener){dashboardWrapper.addEventListener('transitionend',queueDashboardChart);}");
+        script.Append("var sidebarToggle=document.querySelector('.sidebar-toggle');");
+        script.Append("if(sidebarToggle&&sidebarToggle.addEventListener){sidebarToggle.addEventListener('click',function(){window.setTimeout(queueDashboardChart,340);});}");
+        script.Append("})();</script>");
+
+        target.Text = accessibleTable + script.ToString();
+    }
+
+    private static string BuildAccessibleChartTable(
+        string tableId,
+        string caption,
+        IList<object[]> chartRows)
+    {
+        if (chartRows == null || chartRows.Count < 2)
+            return String.Empty;
+
+        StringBuilder table = new StringBuilder();
+        table.Append("<table id=\"")
+            .Append(HttpUtility.HtmlAttributeEncode(tableId))
+            .Append("\" class=\"dashboard-sr-only\">");
+        table.Append("<caption>")
+            .Append(HttpUtility.HtmlEncode(caption))
+            .Append("</caption><thead><tr>");
+
+        object[] headers = chartRows[0];
+        foreach (object header in headers)
+        {
+            table.Append("<th scope=\"col\">")
+                .Append(HttpUtility.HtmlEncode(Convert.ToString(header, CultureInfo.InvariantCulture)))
+                .Append("</th>");
+        }
+
+        table.Append("</tr></thead><tbody>");
+        for (int rowIndex = 1; rowIndex < chartRows.Count; rowIndex++)
+        {
+            object[] row = chartRows[rowIndex];
+            table.Append("<tr>");
+
+            for (int columnIndex = 0; columnIndex < row.Length; columnIndex++)
+            {
+                string cellTag = columnIndex == 0 ? "th" : "td";
+                table.Append("<").Append(cellTag);
+                if (columnIndex == 0)
+                    table.Append(" scope=\"row\"");
+
+                table.Append(">")
+                    .Append(HttpUtility.HtmlEncode(Convert.ToString(row[columnIndex], CultureInfo.InvariantCulture)))
+                    .Append("</").Append(cellTag).Append(">");
+            }
+
+            table.Append("</tr>");
+        }
+
+        table.Append("</tbody></table>");
+        return table.ToString();
+    }
+
+    private void MarkDashboardUnavailable()
+    {
+        lblScreenedSubjects.Text = "—";
+        lblCompletedSubjects.Text = "—";
+        lblOpenQueries.Text = "—";
+        lblSignedPages.Text = "—";
+
+        MarkChartUnavailable(lt1, "chart_div1");
+        MarkChartUnavailable(lt2, "chart_div2");
+        MarkChartUnavailable(lt3, "chart_div3");
+        MarkChartUnavailable(lt4, "chart_div4");
+    }
+
+    private static void MarkChartUnavailable(Literal target, string elementId)
+    {
+        JavaScriptSerializer serializer = new JavaScriptSerializer();
+        string elementIdJson = SerializeForInlineScript(serializer, elementId);
+
+        target.Text =
+            "<script type=\"text/javascript\">(function(){" +
+            "var element=document.getElementById(" + elementIdJson + ");" +
+            "if(!element){return;}" +
+            "var title=element.querySelector('.chart-placeholder strong');" +
+            "var message=element.querySelector('.chart-placeholder span');" +
+            "if(title){title.textContent='Dashboard data unavailable';}" +
+            "if(message){message.textContent='Refresh the page or contact the study administrator.';}" +
+            "})();</script>";
+    }
+
+    private static string SerializeForInlineScript(JavaScriptSerializer serializer, object value)
+    {
+        return serializer.Serialize(value)
+            .Replace("<", "\\u003c")
+            .Replace(">", "\\u003e")
+            .Replace("&", "\\u0026")
+            .Replace("\u2028", "\\u2028")
+            .Replace("\u2029", "\\u2029");
+    }
+
+    private static long SumColumn(DataTable table, string columnName)
+    {
+        if (table == null || !table.Columns.Contains(columnName))
+            return 0;
+
+        long total = 0;
+        foreach (DataRow row in table.Rows)
+            total += ToLong(row[columnName]);
+
+        return total;
+    }
+
+    private static long ToLong(object value)
+    {
+        if (value == null || value == DBNull.Value)
+            return 0;
+
+        long result;
+        return Int64.TryParse(
+            Convert.ToString(value, CultureInfo.InvariantCulture),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out result)
+            ? result
+            : 0;
+    }
+
+    private static string FormatCount(long value)
+    {
+        return value.ToString("N0", CultureInfo.InvariantCulture);
+    }
+
+    private static string EncodeDisplayValue(string value)
+    {
+        return HttpUtility.HtmlEncode(String.IsNullOrWhiteSpace(value) ? "-" : value.Trim());
+    }
+
+    private void HandleDashboardError(string area, Exception exception)
+    {
+        Trace.Warn("Dashboard", area + " could not be loaded.", exception);
+        ShowDashboardNotice(DashboardDataErrorMessage);
+    }
+
+    private void ShowDashboardNotice(string message)
+    {
+        pnlDashboardNotice.Visible = true;
+        lblDashboardNotice.Text = HttpUtility.HtmlEncode(message);
+    }
+
+    private sealed class SiteInfo
     {
         public string SiteNumber { get; set; }
         public string PIName { get; set; }
         public string SiteAddress { get; set; }
-    }
-    private DataTable GetData1()
-    {
-        DataTable dt = new DataTable();
-        //string cmd = "SELECT t3.[CenterNumber] as 'Site Number',count(t2.RANDCRT) as 'Enrolled Subjects',Count(t4.SUBNUM) as 'Subject Withdrawal' ,Count(t1.SUBNUM) as 'Screened Subjects' FROM [dbo].[Subject] t1 LEFT OUTER JOIN [dbo].[tblEnrollUsersWithSite] t3 ON t1.SITENUM =t3.CenterNumber LEFT OUTER JOIN [Visit2].[SubjectEnrolment] t2 ON t2.SUBNUM=t1.SUBNUM and t2.RANDCRT='Yes' Left Outer Join [Add].[StudyCompletionForm] t4 on t4.SUBNUM=t1.SUBNUM and SCFYN='No' WHERE t3.UserName='" + Session["UserName"] + "' group by t3.[CenterNumber]";
-        string cmd = "SELECT t3.[CenterNumber] as 'Site Number' ,Count(t1.SUBNUM) as 'Screened Subjects' ,Count(t4.SUBNUM) as 'Subject Withdrawal' ,Count(t5.SUBNUM) as 'Complate Study' FROM [dbo].[Subject] t1 LEFT OUTER JOIN [dbo].[tblEnrollUsersWithSite] t3 ON t1.SITENUM =t3.CenterNumber Left Outer Join [Add].[EndOfStudyLog] t4 on t4.SUBNUM=t1.SUBNUM and t4.EOSPER='No' Left Outer Join [Add].[EndOfStudyLog] t5 on t5.SUBNUM=t1.SUBNUM and t5.EOSPER='Yes' WHERE t3.UserName='" + Session["UserName"] + "' group by t3.[CenterNumber]";
-        SqlDataAdapter adp = new SqlDataAdapter(cmd, conn);
-        adp.Fill(dt);
-        return dt;
-    }
-    private void BindChart1()
-    {
-        DataTable dt = new DataTable();
-        try
-        {
-            str.Clear();
-            dt = GetData1();
-
-            str.Append(@"<script type=text/javascript> google.load( *visualization*, *1*, {packages:[*corechart*]});
-                       google.setOnLoadCallback(drawChart);
-                       function drawChart() {
-        var data = new google.visualization.DataTable();
-        data.addColumn('string', 'Site Number');
-        data.addColumn('number', 'Screened');
-        data.addColumn('number', 'Withdrawal');
-        data.addColumn('number', 'Complete');
-        
-        data.addRows(" + dt.Rows.Count + ");");
-
-            for (int i = 0; i <= dt.Rows.Count - 1; i++)
-            {
-                str.Append("data.setValue( " + i + "," + 0 + "," + "'" + dt.Rows[i]["Site Number"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 1 + "," + "'" + dt.Rows[i]["Screened Subjects"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 2 + "," + "'" + dt.Rows[i]["Subject Withdrawal"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 3 + "," + "'" + dt.Rows[i]["Complate Study"].ToString() + "');");
-
-
-            }
-
-            str.Append(" var chart = new google.visualization.ColumnChart(document.getElementById('chart_div1'));");
-            str.Append(" chart.draw(data, {width: '100%', height: 300,colors: ['#4671bd', '#199bfc','#DF1212', '#20A006'], legend: {position: 'top', maxLines: 4},bar: { groupWidth: '50%'}, title: 'Status of Recruitment',");
-            str.Append("hAxis: {title: 'Sites', titleTextStyle: {color: 'Black'}}");
-            str.Append("}); }");
-            str.Append("</script>");
-            lt1.Text = str.ToString().TrimEnd(',').Replace('*', '"');
-        }
-        catch
-        {
-        }
-    }
-    private DataTable GetData2()
-    {
-        DataTable dt1 = new DataTable();
-        string cmd1 = ";with aa(Site, [Status], counts)as(SELECT o.CenterNumber as 'Site', c.Status as 'Status' , count([Status]) AS counts FROM [tblEnrollUsersWithSite] o, [tblQuery] c WHERE c.Site =o.CenterNumber and o.UserName='" + Session["UserName"] + "' GROUP BY o.CenterNumber,c.Status) SELECT   [Site], [Open] as 'Open Queries', [Close] as 'Close Queries', [Query Responded] as 'Responded Queries' FROM  aa PIVOT(sum(counts)FOR [Status] IN ([Open],   [Close], [Query Responded])) AS P";
-        SqlDataAdapter adp = new SqlDataAdapter(cmd1, conn);
-        adp.Fill(dt1);
-        return dt1;
-    }
-    private void BindChart2()
-    {
-        DataTable dt1 = new DataTable();
-        try
-        {
-            str.Clear();
-            dt1 = GetData2();
-
-            str.Append(@"<script type=text/javascript> google.load( *visualization*, *1*, {packages:[*corechart*]});
-                       google.setOnLoadCallback(drawChart);
-                       function drawChart() {
-        var data = new google.visualization.DataTable();
-        data.addColumn('string', 'Site');
-        data.addColumn('number', 'Open'); 
-        data.addColumn('number', 'Responded');
-        data.addColumn('number', 'Closed');  
-        
-        data.addRows(" + dt1.Rows.Count + ");");
-
-            for (int i = 0; i <= dt1.Rows.Count - 1; i++)
-            {
-                str.Append("data.setValue( " + i + "," + 0 + "," + "'" + dt1.Rows[i]["Site"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 1 + "," + "'" + dt1.Rows[i]["Open Queries"].ToString() + "');");
-                str.Append("data.setValue(" + i + "," + 2 + "," + dt1.Rows[i]["Responded Queries"].ToString() + ") ;");
-                str.Append("data.setValue(" + i + "," + 3 + "," + dt1.Rows[i]["Close Queries"].ToString() + ") ;");
-            }
-
-            str.Append(" var chart = new google.visualization.ColumnChart(document.getElementById('chart_div2'));");
-            str.Append(" chart.draw(data, {widt1h: '100%', height: 300,colors: ['#FF0000', '#FFA500','#008000'], legend: {position: 'top', maxLines: 4},bar: { groupWidt1h: '10%'}, title: 'Status of Queries',");
-            str.Append("hAxis: {title: 'Sites', titleTextStyle: {color: 'Black'}}");
-            str.Append("}); }");
-            str.Append("</script>");
-            lt2.Text = str.ToString().TrimEnd(',').Replace('*', '"');
-        }
-        catch
-        {
-        }
-    }
-    private DataTable GetData3()
-    {
-        DataTable dt1 = new DataTable();
-        //string cmd1 = "SELECT SITENUM as 'Site', Count(EntryStatus) As TotalPages, count(PISIGN) as UnsignedPages, (SELECT count(PISIGN) FROM [dbo].[tblPISignature] where SITENUM=t1.SITENUM and PISIGN=1) as SignedPages FROM [dbo].[tblPISignature] t1 inner join tblEnrollUsersWithSite t2 on t2.CenterNumber=t1.SITENUM where t1.PISIGN=0 and t2.UserName='" + Session["UserName"] + "' group by t1.SITENUM";
-
-        string cmd1 = "SELECT SITENUM as 'Site' , Count(EntryStatus) As TotalPages , (SELECT count(PISIGN) FROM [dbo].[tblPISignature] where SITENUM=t1.SITENUM and PISIGN=0) as UnsignedPages , (SELECT count(PISIGN) FROM [dbo].[tblPISignature] where SITENUM=t1.SITENUM and PISIGN=1) as SignedPages FROM [dbo].[tblPISignature] t1 inner join tblEnrollUsersWithSite t2 on t2.CenterNumber=t1.SITENUM where t2.UserName='" + Session["UserName"] + "' group by t1.SITENUM";
-        SqlDataAdapter adp = new SqlDataAdapter(cmd1, conn);
-        adp.Fill(dt1);
-        return dt1;
-    }
-    private void BindChart3()
-    {
-        DataTable dt1 = new DataTable();
-        try
-        {
-            str.Clear();
-            dt1 = GetData3();
-
-            str.Append(@"<script type=text/javascript> google.load( *visualization*, *1*, {packages:[*corechart*]});
-                       google.setOnLoadCallback(drawChart);
-                       function drawChart() {
-        var data = new google.visualization.DataTable();
-        data.addColumn('string', 'Site');
-        data.addColumn('number', 'Total Pages'); 
-        data.addColumn('number', 'Unsigned Pages'); 
-        data.addColumn('number', 'Signed Pages');
-        
-        data.addRows(" + dt1.Rows.Count + ");");
-
-            for (int i = 0; i <= dt1.Rows.Count - 1; i++)
-            {
-                str.Append("data.setValue( " + i + "," + 0 + "," + "'" + dt1.Rows[i]["Site"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 1 + "," + "'" + dt1.Rows[i]["TotalPages"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 2 + "," + "'" + dt1.Rows[i]["UnsignedPages"].ToString() + "');");
-                str.Append("data.setValue(" + i + "," + 3 + "," + dt1.Rows[i]["SignedPages"].ToString() + ") ;");
-            }
-
-            str.Append(" var chart = new google.visualization.ColumnChart(document.getElementById('chart_div3'));");
-            str.Append(" chart.draw(data, {widt1h: '100%', height: 300,colors: ['#D35400','#FF0000', '#FFA500','#008000'], legend: {position: 'top', maxLines: 4},bar: { groupWidt1h: '10%'}, title: 'Status of PI Signature',");
-            str.Append("hAxis: {title: 'Sites', titleTextStyle: {color: 'Black'}}");
-            str.Append("}); }");
-            str.Append("</script>");
-            lt3.Text = str.ToString().TrimEnd(',').Replace('*', '"');
-        }
-        catch
-        {
-        }
-    }
-    private DataTable GetData4()
-    {
-        DataTable dt2 = new DataTable();
-        string cmd2 = "Select SITENUM as Site, Count(EntryStatus) As TotalPages, (Select Count(EntryStatus) As TotalPages FROM [dbo].[tblPISignature] Where SITENUM=t1.SITENUM and EntryStatus='Submit') as Submit , (Select Count(EntryStatus) As TotalPages FROM [dbo].[tblPISignature] Where SITENUM=t1.SITENUM and EntryStatus='Save') as [Save] , (Select Count(LockStatus) As TotalPages FROM [dbo].[tblPISignature] Where SITENUM=t1.SITENUM and LockStatus='SDV') as SDV ,(Select Count(LockStatus) As TotalPages FROM [dbo].[tblPISignature] Where SITENUM=t1.SITENUM and LockStatus='Unlocked') as Unlocked ,(Select Count(LockStatus) As TotalPages FROM [dbo].[tblPISignature] Where SITENUM=t1.SITENUM and LockStatus='Locked') as Locked FROM [dbo].[tblPISignature] t1 Inner join tblEnrollUsersWithSite t2 on t2.CenterNumber=t1.SITENUM where t2.UserName='" + Session["UserName"] + "' group by t1.SITENUM";
-        SqlDataAdapter adp = new SqlDataAdapter(cmd2, conn);
-        adp.Fill(dt2);
-        return dt2;
-    }
-    private void BindChart4()
-    {
-        DataTable dt2 = new DataTable();
-        try
-        {
-            str.Clear();
-            dt2 = GetData4();
-
-            str.Append(@"<script type=text/javascript> google.load( *visualization*, *1*, {packages:[*corechart*]});
-                       google.setOnLoadCallback(drawChart);
-                       function drawChart() {
-        var data = new google.visualization.DataTable();
-        data.addColumn('string', 'Site');
-        data.addColumn('number', 'Total Pages'); 
-        data.addColumn('number', 'Submit'); 
-        data.addColumn('number', 'Save'); 
-        data.addColumn('number', 'SDV');
-        data.addColumn('number', 'Unlocked');
-        data.addColumn('number', 'Locked');
-        
-        data.addRows(" + dt2.Rows.Count + ");");
-
-            for (int i = 0; i <= dt2.Rows.Count - 1; i++)
-            {
-                str.Append("data.setValue( " + i + "," + 0 + "," + "'" + dt2.Rows[i]["Site"].ToString() + "');");
-                str.Append("data.setValue( " + i + "," + 1 + "," + "'" + dt2.Rows[i]["TotalPages"].ToString() + "');");
-                str.Append("data.setValue(" + i + "," + 2 + "," + dt2.Rows[i]["Submit"].ToString() + ") ;");
-                str.Append("data.setValue(" + i + "," + 3 + "," + dt2.Rows[i]["Save"].ToString() + ") ;");
-                str.Append("data.setValue(" + i + "," + 4 + "," + dt2.Rows[i]["SDV"].ToString() + ") ;");
-                str.Append("data.setValue(" + i + "," + 5 + "," + dt2.Rows[i]["Unlocked"].ToString() + ") ;");
-                str.Append("data.setValue(" + i + "," + 6 + "," + dt2.Rows[i]["Locked"].ToString() + ") ;");
-            }
-
-            str.Append(" var chart = new google.visualization.ColumnChart(document.getElementById('chart_div4'));");
-            str.Append(" chart.draw(data, {widt1h: '100%', height: 300,colors: ['#D35400', '#1E8449','#F4D03F', '#1ABC9C', '#3498DB', '#CB4335'], legend: {position: 'top', maxLines: 4},bar: { groupWidt1h: '10%'}, title: 'Status of Pages',");
-            str.Append("hAxis: {title: 'Sites', titleTextStyle: {color: 'Black'}}");
-            str.Append("}); }");
-            str.Append("</script>");
-            lt4.Text = str.ToString().TrimEnd(',').Replace('*', '"');
-        }
-        catch
-        {
-        }
     }
 }
