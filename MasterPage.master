@@ -1,0 +1,128 @@
+﻿<%@ Master Language="C#" AutoEventWireup="true" CodeFile="MasterPage.master.cs" Inherits="MasterPage2" %>
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head runat="server">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>ClinSoft | GPL ZANU-401</title>
+    <link href="~/css/master-modern.css" rel="stylesheet" type="text/css" runat="server" />
+    <asp:ContentPlaceHolder ID="head" runat="server">
+        <link rel="icon" type="image/png" href="images/ClinSoft-(Logo)-opt-3.jpg" sizes="96x96" />
+        <link rel="stylesheet" type="text/css" href="css/main.css" />
+    </asp:ContentPlaceHolder>
+</head>
+
+<body class="sidebar-mini fixed clinsoft-app">
+
+    <div class="wrapper">
+        <form id="form1" runat="server" autocomplete="off" oncopy="return false" oncut="return false" onpaste="return false">
+            <header class="main-header hidden-print topbar">
+                <a class="logo topbar-logo" href="~/Home.aspx" runat="server" aria-label="ClinSoft home">
+                    <span class="brand-mark">C</span>
+                    <span class="logo-text">ClinSoft</span>
+                </a>
+                <nav class="navbar navbar-static-top">
+                    <a class="sidebar-toggle" href="#" data-toggle="offcanvas" aria-label="Toggle navigation"></a>
+                    <div class="navbar-custom-menu">
+                        <ul class="top-nav">
+                            <li class="protocol-item">
+                                <span class="protocol-pill"><i class="fa fa-flask" aria-hidden="true"></i>
+                                    <asp:Label ID="Label1" Text="GPL ZANU-401" runat="server"></asp:Label>
+                                </span>
+                            </li>
+                            <li class="dropdown user-menu">
+                                <a class="dropdown-toggle user-trigger" href="#" data-toggle="dropdown" role="button" aria-haspopup="true" aria-expanded="false">
+                                    <span class="user-avatar"><i class="fa fa-user" aria-hidden="true"></i></span>
+                                    <span class="user-menu-label">My account</span>
+                                    <i class="fa fa-angle-down" aria-hidden="true"></i>
+                                </a>
+                                <ul class="dropdown-menu settings-menu user-dropdown">
+                                    <li class="dropdown-user"><span class="dropdown-caption">Signed in as</span>
+                                        <strong><asp:Label runat="server" ID="LabelUserName"></asp:Label></strong></li>
+                                    <li><a href="~/ChangePassword.aspx" runat="server"><i class="fa fa-cog fa-lg"></i>Change Password</a></li>
+                                    <li><a onserverclick="Logout_Click" runat="server"><i class="fa fa-sign-out fa-lg"></i>Logout</a></li>
+                                </ul>
+                            </li>
+                        </ul>
+                    </div>
+                </nav>
+            </header>
+            <aside class="main-sidebar hidden-print sidebar-modern">
+                <section class="sidebar">
+                    <div class="sidebar-brand">
+                        <span class="sidebar-eyebrow">Clinical study</span>
+                        <strong>Zanubrutinib Registry</strong>
+                        <small>Data management portal</small>
+                    </div>
+                    <ul class="sidebar-menu">
+                        <li class="active"><a href="~/Home.aspx" id="MHome" visible="false" runat="server"><i class="fa fa-laptop"></i><span>Home</span></a></li>
+                        <li class="treeview"><a href="#" runat="server" visible="false" id="MSDoc"><i class="fa fa-edit"></i><span>Study Documents</span><i class="fa fa-angle-right"></i></a>
+                            <ul class="treeview-menu">
+                                <li><a href="~/documents/upload/Upload.aspx" id="MUDoc" visible="false" runat="server"><i class="fa fa-circle-o"></i>Upload Document(s)</a></li>
+                                <li><a href="~/documents/download/Download.aspx" id="MDDoc" visible="false" runat="server"><i class="fa fa-circle-o"></i>Download Document(s)</a></li>
+                                <li><a href="~/documents/download/ImageDownload.aspx" id="Images" visible="false" runat="server"><i class="fa fa-circle-o"></i>Download Images(s)</a></li>
+                            </ul>
+                        </li>
+
+                        <li class="treeview"><a href="#" runat="server" visible="false" id="MAdmin"><i class="fa fa-dashboard"></i><span>Admin</span><i class="fa fa-angle-right"></i></a>
+                            <ul class="treeview-menu">
+                                <li><a href="~/Admin/EnrolledSite.aspx" id="MENSite" visible="false" runat="server"><i class="fa fa-circle-o"></i>Enroll New Site</a></li>
+                                <li><a href="~/Admin/CreateNewUser.aspx" id="MCNUser" visible="false" runat="server"><i class="fa fa-circle-o"></i>Create New User</a></li>
+
+                                <li><a href="~/Admin/AssignSite2User.aspx" id="MAUSite" visible="false" runat="server"><i class="fa fa-circle-o"></i>Assign User Site</a></li>
+                                <li><a href="~/Admin/AduitLog.aspx" runat="server" visible="false" id="MATrail"><i class="fa fa-circle-o"></i>Audit Trail</a></li>
+                                <li><a href="~/Admin/UserProfileManagement.aspx" id="MMUsers" visible="false" runat="server"><i class="fa fa-circle-o"></i>Manage Users</a></li>
+
+                            </ul>
+                        </li>
+                        <li class="treeview"><a href="#" runat="server" visible="false" id="MDEnty"><i class="fa fa-file-text"></i><span>Data Entry</span><i class="fa fa-angle-right"></i></a>
+                            <ul class="treeview-menu">
+                                <li><a href="~/Data-Entry/EnrollNewSubject.aspx" visible="false" id="MESubject" runat="server"><i class="fa fa-circle-o"></i>Enroll Subject</a></li>
+                                <li><a href="~/Data-Entry/subjectList.aspx" visible="false" runat="server" id="MSList"><i class="fa fa-circle-o"></i>Subject List</a></li>
+
+                            </ul>
+                        </li>
+                        <li class="treeview"><a href="#" runat="server" visible="false" id="MQuery"><i class=" fa fa-question-circle"></i><span>Query</span><i class="fa fa-angle-right"></i></a>
+                            <ul class="treeview-menu">
+                                <li><a href="~/Data-Entry/Query/RaiseQueries.aspx" runat="server" visible="false" id="MOQueries"><i class="fa fa-circle-o"></i>Open Queries</a></li>
+                                <li><a href="~/Data-Entry/Query/QueryResponded.aspx" visible="false" runat="server" id="MQResponded"><i class="fa fa-circle-o"></i>Queries Responded</a></li>
+                                <li><a href="~/Data-Entry/Query/Close.aspx" runat="server" visible="false" id="MCQueries"><i class="fa fa-circle-o"></i>Closed Queries</a></li>
+
+
+                                <li><a href="~/Data-Entry/Query/CRARaiseQueries.aspx" runat="server" visible="false" id="MCRAOpenQueries"><i class="fa fa-circle-o"></i>Open Queries</a></li>
+                                <li><a href="~/Data-Entry/Query/CRAQueryResponded.aspx" visible="false" runat="server" id="MCRAQueriesResponded"><i class="fa fa-circle-o"></i>Queries Responded</a></li>
+                                <li><a href="~/Data-Entry/Query/CRAClose.aspx" runat="server" visible="false" id="MCRAClosedQueries"><i class="fa fa-circle-o"></i>Closed Queries</a></li>
+
+
+
+                                <li><a href="~/Data-Entry/Query/Total.aspx" runat="server" visible="false" id="MTQueries"><i class="fa fa-circle-o"></i>Total Queries</a></li>
+                            </ul>
+                        </li>
+                        <li class="treeview"><a href="#" runat="server" visible="false" id="MDEView"><i class="fa fa-th-list"></i><span>Data View</span><i class="fa fa-angle-right"></i></a>
+                            <ul class="treeview-menu">
+                                <li><a href="~/Study-Monitor/subjectList.aspx" runat="server" visible="false" id="CRADataView"><i class="fa fa-circle-o"></i>Subject List</a></li>
+                                <li><a href="~/DataView/subjectList.aspx" runat="server" visible="false" id="MDEViewSList"><i class="fa fa-circle-o"></i>Subject List</a></li>
+                            </ul>
+                        </li>
+                        <li><a href="~/DataExtraction.aspx" runat="server" visible="false" id="MDataExtraction"><i class="fa fa-pie-chart"></i><span>Data Extraction</span></a></li>
+                        <li><a href="~/FullyLock.aspx" runat="server" visible="false" id="fullLock"><i class="fa fa-pie-chart"></i><span>DataBase Lock</span></a></li>
+                        <li><a href="~/FullyUnlock.aspx" runat="server" visible="false" id="fullUnlock"><i class="fa fa-pie-chart"></i><span>DataBase Unlock</span></a></li>
+
+                    </ul>
+                </section>
+            </aside>
+
+            <main class="app-main" role="main">
+                <asp:ContentPlaceHolder ID="ContentPlaceHolder2" runat="server">
+                    <asp:PlaceHolder ID="PlaceHolder1" runat="server"></asp:PlaceHolder>
+                </asp:ContentPlaceHolder>
+            </main>
+
+        </form>
+    </div>
+
+</body>
+</html>

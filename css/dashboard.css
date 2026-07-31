@@ -1,0 +1,38 @@
+.dashboard-page { min-height: calc(100vh - 50px); }
+
+.dashboard-header {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 22px;
+}
+
+.dashboard-header h1 { margin: 4px 0 0; color: #102a43; font-size: 26px; font-weight: 700; letter-spacing: -.025em; }
+.page-eyebrow { color: #0f766e; font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+.dashboard-status { padding: 7px 11px; border: 1px solid #cce8df; border-radius: 999px; background: #effbf7; color: #18794e; font-size: 11px; font-weight: 600; }
+.dashboard-status .fa { margin-right: 5px; color: #22a06b; font-size: 7px; }
+
+.summary-row { margin-bottom: 8px; }
+.summary-card { position: relative; min-height: 112px; margin-bottom: 15px; padding: 20px 18px 18px 68px; overflow: hidden; border: 1px solid #dfe7e7; border-radius: 12px; background: #fff; box-shadow: 0 4px 16px rgba(16,42,67,.05); }
+.summary-icon { position: absolute; top: 20px; left: 18px; display: inline-flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 10px; background: #e6f7f4; color: #0f766e; font-size: 17px; }
+.summary-investigator .summary-icon { background: #edf2ff; color: #3f5bd9; }
+.summary-address .summary-icon { background: #fff3df; color: #a15c00; }
+.summary-label { margin-bottom: 6px; color: #829ab1; font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.summary-value { color: #102a43; font-size: 18px; font-weight: 700; line-height: 1.35; word-break: break-word; }
+.summary-address .summary-value { font-size: 14px; font-weight: 600; }
+
+.chart-grid > div { margin-bottom: 18px; }
+.dash-card { overflow: hidden; border: 1px solid #dfe7e7; border-radius: 12px; background: #fff; box-shadow: 0 4px 16px rgba(16,42,67,.05); }
+.dash-card-header { min-height: 8px; padding: 14px 18px; border-bottom: 1px solid #e8eeee; color: #334e68; font-size: 13px; font-weight: 700; }
+.dash-card-header:empty { display: none; }
+.dash-card-header * { margin: 0; }
+.dash-card-body { padding: 12px 16px 18px; background: #fff; }
+.chart-box { width: 100%; min-height: 340px; }
+
+@media (max-width: 767px) {
+    .dashboard-header { align-items: flex-start; flex-direction: column; }
+    .dashboard-header h1 { font-size: 23px; }
+    .chart-box { min-height: 280px; }
+    .dash-card-body { padding: 8px; }
+}

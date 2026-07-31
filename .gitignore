@@ -1,0 +1,45 @@
+# Local configuration and secrets
+web.config
+*.config.local
+.env
+.env.*
+!.env.example
+
+# Uploaded clinical/user data
+Files/
+
+# Machine-specific publish settings
+App_Data/PublishProfiles/
+*.publishsettings
+
+# Local IDE and build artifacts
+.vs/
+.compile-check/
+obj/
+Debug/
+Release/
+artifacts/
+publish/
+packages/
+TestResults/
+*.user
+*.suo
+*.pdb
+*.dll.refresh
+*.cache
+*.tmp
+*.log
+
+# Certificates, keys, and database backups
+*.pfx
+*.p12
+*.pem
+*.key
+*.bak
+*.bacpac
+*.mdf
+*.ldf
+*.sql
+
+# Temporary pull-request text
+.pr-body.md

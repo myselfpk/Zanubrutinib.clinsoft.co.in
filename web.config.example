@@ -1,0 +1,50 @@
+<?xml version="1.0"?>
+
+<configuration>
+  <system.web>
+    <sessionState timeout="30"/>
+    <compilation debug="false" targetFramework="4.8">
+      <assemblies>
+        <add assembly="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=B77A5C561934E089"/>
+        <add assembly="System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=B03F5F7F11D50A3A"/>
+        <add assembly="System.Web.Extensions.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31BF3856AD364E35"/>
+        <add assembly="System.Web.Abstractions, Version=4.0.0.0, Culture=neutral, PublicKeyToken=31BF3856AD364E35"/>
+      </assemblies>
+    </compilation>
+    <customErrors mode="RemoteOnly"/>
+    <pages controlRenderingCompatibilityVersion="4.0"/>
+    <httpRuntime maxRequestLength="51200" executionTimeout="600" requestLengthDiskThreshold="8192"/>
+  </system.web>
+  <appSettings>
+    <add key="ValidationSettings:UnobtrusiveValidationMode" value="None"/>
+    <add key="LegacyPasswordEncryptionKey" value="SET_A_STRONG_SECRET_OUTSIDE_SOURCE_CONTROL"/>
+    <add key="SmtpFrom" value="YOUR_SMTP_FROM_ADDRESS"/>
+  </appSettings>
+  <connectionStrings>
+    <add name="constr" connectionString="Data Source=YOUR_SQL_SERVER;Initial Catalog=YOUR_DATABASE;User ID=YOUR_DB_USER;Password=YOUR_DB_PASSWORD;Encrypt=True;TrustServerCertificate=True" providerName="System.Data.SqlClient"/>
+    <add name="Excel03ConString" connectionString="Provider=Microsoft.Jet.OLEDB.4.0;Data Source={0};Extended Properties='Excel 8.0;HDR=YES'"/>
+    <add name="Excel07+ConString" connectionString="Provider=Microsoft.ACE.OLEDB.12.0;Data Source={0};Extended Properties='Excel 8.0;HDR=YES'"/>
+  </connectionStrings>
+  <system.net>
+    <mailSettings>
+      <smtp from="YOUR_SMTP_FROM_ADDRESS" deliveryMethod="Network">
+        <network host="YOUR_SMTP_HOST" port="587" userName="YOUR_SMTP_USER" password="YOUR_SMTP_PASSWORD" enableSsl="true"/>
+      </smtp>
+    </mailSettings>
+  </system.net>
+  <system.webServer>
+    <directoryBrowse enabled="false"/>
+    <defaultDocument>
+      <files>
+        <clear/>
+        <add value="login.aspx"/>
+      </files>
+    </defaultDocument>
+    <httpErrors errorMode="DetailedLocalOnly" existingResponse="Auto"/>
+    <security>
+      <requestFiltering>
+        <requestLimits maxAllowedContentLength="52428800"/>
+      </requestFiltering>
+    </security>
+  </system.webServer>
+</configuration>
