@@ -194,6 +194,10 @@ body.login-page {
 .login-button.btn-primary:active { border-color: var(--brand-dark); background: var(--brand-dark); box-shadow: 0 0 0 3px rgba(45,212,191,.2); }
 .support-note { margin: 22px 0 0; color: #526d82; font-size: 12px; text-align: center; }
 
+@media (min-width: 901px) {
+    .login-panel { justify-content: flex-end; }
+}
+
 @media (max-width: 900px) {
     .login-shell { grid-template-columns: 1fr; }
     .login-intro { min-height: 280px; align-items: center; padding: 42px; }
