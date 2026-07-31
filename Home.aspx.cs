@@ -46,32 +46,6 @@ public partial class _Default : Page
             return;
         }
 
-        if (IsSessionExplicitlyInactive())
-        {
-            pnlSiteSummary.Visible = false;
-            ShowDashboardNotice("This account is inactive. Contact the study administrator if you need access.");
-            MarkDashboardUnavailable();
-            return;
-        }
-
-        try
-        {
-            if (!IsCurrentUserActive(userName))
-            {
-                pnlSiteSummary.Visible = false;
-                ShowDashboardNotice("This account is inactive or unavailable. Contact the study administrator if you need access.");
-                MarkDashboardUnavailable();
-                return;
-            }
-        }
-        catch (Exception exception)
-        {
-            pnlSiteSummary.Visible = false;
-            HandleDashboardError("Account validation", exception);
-            MarkDashboardUnavailable();
-            return;
-        }
-
         BindSiteDetails(userName);
         BindChart1(userName);
         BindChart2(userName);
@@ -110,37 +84,6 @@ public partial class _Default : Page
         lblCompletedSubjects.Text = "0";
         lblOpenQueries.Text = "0";
         lblSignedPages.Text = "0";
-    }
-
-    private bool IsSessionExplicitlyInactive()
-    {
-        string activeFlag = Convert.ToString(Session["ActiveFlag"], CultureInfo.InvariantCulture);
-        bool isActive;
-        return Boolean.TryParse(activeFlag, out isActive) && !isActive;
-    }
-
-    private bool IsCurrentUserActive(string userName)
-    {
-        const string sql = @"
-SELECT CASE WHEN EXISTS
-(
-    SELECT 1
-    FROM dbo.tbl_UserLogin
-    WHERE UserName = @UserName
-      AND ISNULL(IsActive, 0) = 1
-      AND ISNULL(IsDelete, 0) = 0
-)
-THEN CAST(1 AS BIT)
-ELSE CAST(0 AS BIT)
-END;";
-
-        using (SqlConnection connection = CreateConnection())
-        using (SqlCommand command = new SqlCommand(sql, connection))
-        {
-            command.Parameters.Add("@UserName", SqlDbType.NVarChar, 250).Value = userName;
-            connection.Open();
-            return Convert.ToBoolean(command.ExecuteScalar(), CultureInfo.InvariantCulture);
-        }
     }
 
     private void BindSiteDetails(string userName)
@@ -209,23 +152,24 @@ ORDER BY s.Id DESC;";
     {
         const string sql = @"
 SELECT
-    assigned.CenterNumber AS [Site Number],
-    COUNT(DISTINCT subject.SUBNUM) AS [Screened Subjects],
-    COUNT(DISTINCT CASE WHEN completion.EOSPER = 'No' THEN subject.SUBNUM END) AS [Subject Withdrawal],
-    COUNT(DISTINCT CASE WHEN completion.EOSPER = 'Yes' THEN subject.SUBNUM END) AS [Completed Subjects]
-FROM
-(
-    SELECT DISTINCT CenterNumber
-    FROM dbo.tblEnrollUsersWithSite
-    WHERE UserName = @UserName
-) AS assigned
-LEFT JOIN dbo.Subject AS subject
-    ON subject.SITENUM = assigned.CenterNumber
+    enrollment.CenterNumber AS [Site Number],
+    COUNT(subject.SUBNUM) AS [Screened Subjects],
+    COUNT(withdrawal.SUBNUM) AS [Subject Withdrawal],
+    COUNT(completion.SUBNUM) AS [Completed Subjects]
+FROM dbo.Subject AS subject
+LEFT JOIN dbo.tblEnrollUsersWithSite AS enrollment
+    ON subject.SITENUM = enrollment.CenterNumber
+LEFT JOIN [Add].[EndOfStudyLog] AS withdrawal
+    ON withdrawal.SUBNUM = subject.SUBNUM
+   AND withdrawal.SITENUM = subject.SITENUM
+   AND withdrawal.EOSPER = 'No'
 LEFT JOIN [Add].[EndOfStudyLog] AS completion
     ON completion.SUBNUM = subject.SUBNUM
    AND completion.SITENUM = subject.SITENUM
-GROUP BY assigned.CenterNumber
-ORDER BY assigned.CenterNumber;";
+   AND completion.EOSPER = 'Yes'
+WHERE enrollment.UserName = @UserName
+GROUP BY enrollment.CenterNumber
+ORDER BY enrollment.CenterNumber;";
 
         return ExecuteDashboardQuery(sql, userName);
     }
@@ -263,21 +207,29 @@ ORDER BY assigned.CenterNumber;";
     private DataTable GetData2(string userName)
     {
         const string sql = @"
-SELECT
-    assigned.CenterNumber AS [Site],
-    SUM(CASE WHEN query.[Status] = 'Open' THEN 1 ELSE 0 END) AS [Open Queries],
-    SUM(CASE WHEN query.[Status] = 'Query Responded' THEN 1 ELSE 0 END) AS [Responded Queries],
-    SUM(CASE WHEN query.[Status] = 'Close' THEN 1 ELSE 0 END) AS [Close Queries]
-FROM
+;WITH QueryCounts (Site, [Status], Total) AS
 (
-    SELECT DISTINCT CenterNumber
-    FROM dbo.tblEnrollUsersWithSite
-    WHERE UserName = @UserName
-) AS assigned
-LEFT JOIN dbo.tblQuery AS query
-    ON query.Site = assigned.CenterNumber
-GROUP BY assigned.CenterNumber
-ORDER BY assigned.CenterNumber;";
+    SELECT
+        enrollment.CenterNumber,
+        studyQuery.[Status],
+        COUNT(studyQuery.[Status])
+    FROM dbo.tblEnrollUsersWithSite AS enrollment
+    INNER JOIN dbo.tblQuery AS studyQuery
+        ON studyQuery.Site = enrollment.CenterNumber
+    WHERE enrollment.UserName = @UserName
+    GROUP BY enrollment.CenterNumber, studyQuery.[Status]
+)
+SELECT
+    Site,
+    ISNULL([Open], 0) AS [Open Queries],
+    ISNULL([Query Responded], 0) AS [Responded Queries],
+    ISNULL([Close], 0) AS [Close Queries]
+FROM QueryCounts
+PIVOT
+(
+    SUM(Total) FOR [Status] IN ([Open], [Close], [Query Responded])
+) AS PivotedQueries
+ORDER BY Site;";
 
         return ExecuteDashboardQuery(sql, userName);
     }
@@ -314,20 +266,20 @@ ORDER BY assigned.CenterNumber;";
     {
         const string sql = @"
 SELECT
-    assigned.CenterNumber AS [Site],
-    COUNT(signature.Id) AS [TotalPages],
-    SUM(CASE WHEN signature.PISIGN = 0 THEN 1 ELSE 0 END) AS [UnsignedPages],
-    SUM(CASE WHEN signature.PISIGN = 1 THEN 1 ELSE 0 END) AS [SignedPages]
-FROM
+    signature.SITENUM AS [Site],
+    COUNT(signature.EntryStatus) AS [TotalPages],
+    (SELECT COUNT(PISIGN) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND PISIGN = 0) AS [UnsignedPages],
+    (SELECT COUNT(PISIGN) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND PISIGN = 1) AS [SignedPages]
+FROM dbo.tblPISignature AS signature
+INNER JOIN
 (
     SELECT DISTINCT CenterNumber
     FROM dbo.tblEnrollUsersWithSite
     WHERE UserName = @UserName
 ) AS assigned
-LEFT JOIN dbo.tblPISignature AS signature
-    ON signature.SITENUM = assigned.CenterNumber
-GROUP BY assigned.CenterNumber
-ORDER BY assigned.CenterNumber;";
+    ON assigned.CenterNumber = signature.SITENUM
+GROUP BY signature.SITENUM
+ORDER BY signature.SITENUM;";
 
         return ExecuteDashboardQuery(sql, userName);
     }
@@ -364,23 +316,23 @@ ORDER BY assigned.CenterNumber;";
     {
         const string sql = @"
 SELECT
-    assigned.CenterNumber AS [Site],
-    COUNT(signature.Id) AS [TotalPages],
-    SUM(CASE WHEN signature.EntryStatus = 'Submit' THEN 1 ELSE 0 END) AS [Submit],
-    SUM(CASE WHEN signature.EntryStatus = 'Save' THEN 1 ELSE 0 END) AS [Save],
-    SUM(CASE WHEN signature.LockStatus = 'SDV' THEN 1 ELSE 0 END) AS [SDV],
-    SUM(CASE WHEN signature.LockStatus = 'Unlocked' THEN 1 ELSE 0 END) AS [Unlocked],
-    SUM(CASE WHEN signature.LockStatus = 'Locked' THEN 1 ELSE 0 END) AS [Locked]
-FROM
+    signature.SITENUM AS [Site],
+    COUNT(signature.EntryStatus) AS [TotalPages],
+    (SELECT COUNT(EntryStatus) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND EntryStatus = 'Submit') AS [Submit],
+    (SELECT COUNT(EntryStatus) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND EntryStatus = 'Save') AS [Save],
+    (SELECT COUNT(LockStatus) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND LockStatus = 'SDV') AS [SDV],
+    (SELECT COUNT(LockStatus) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND LockStatus = 'Unlocked') AS [Unlocked],
+    (SELECT COUNT(LockStatus) FROM dbo.tblPISignature WHERE SITENUM = signature.SITENUM AND LockStatus = 'Locked') AS [Locked]
+FROM dbo.tblPISignature AS signature
+INNER JOIN
 (
     SELECT DISTINCT CenterNumber
     FROM dbo.tblEnrollUsersWithSite
     WHERE UserName = @UserName
 ) AS assigned
-LEFT JOIN dbo.tblPISignature AS signature
-    ON signature.SITENUM = assigned.CenterNumber
-GROUP BY assigned.CenterNumber
-ORDER BY assigned.CenterNumber;";
+    ON assigned.CenterNumber = signature.SITENUM
+GROUP BY signature.SITENUM
+ORDER BY signature.SITENUM;";
 
         return ExecuteDashboardQuery(sql, userName);
     }
@@ -496,7 +448,7 @@ ORDER BY assigned.CenterNumber;";
         script.Append("var options={");
         script.Append("backgroundColor:'transparent',");
         script.Append("width:Math.max(element.clientWidth||0,240),");
-        script.Append("height:compact?280:340,");
+        script.Append("height:compact?280:320,");
         script.Append("colors:chartColors,");
         script.Append("fontName:'Segoe UI',");
         script.Append("legend:{position:'top',alignment:'center',maxLines:3,textStyle:{color:'#334e68',fontSize:compact?10:11}},");
@@ -519,7 +471,7 @@ ORDER BY assigned.CenterNumber;";
         script.Append("function queueDashboardChart(){window.clearTimeout(resizeTimer);resizeTimer=window.setTimeout(drawDashboardChart,160);}");
         script.Append("if(window.google&&window.google.charts){google.charts.setOnLoadCallback(drawDashboardChart);}else{markDashboardChartUnavailable();}");
         script.Append("if(window.addEventListener){window.addEventListener('resize',queueDashboardChart);}");
-        script.Append("var dashboardWrapper=document.querySelector('.content-wrapper.dashboard-page');");
+        script.Append("var dashboardWrapper=document.querySelector('.content-wrapper');");
         script.Append("if(dashboardWrapper&&dashboardWrapper.addEventListener){dashboardWrapper.addEventListener('transitionend',queueDashboardChart);}");
         script.Append("var sidebarToggle=document.querySelector('.sidebar-toggle');");
         script.Append("if(sidebarToggle&&sidebarToggle.addEventListener){sidebarToggle.addEventListener('click',function(){window.setTimeout(queueDashboardChart,340);});}");
@@ -539,7 +491,7 @@ ORDER BY assigned.CenterNumber;";
         StringBuilder table = new StringBuilder();
         table.Append("<table id=\"")
             .Append(HttpUtility.HtmlAttributeEncode(tableId))
-            .Append("\" class=\"dashboard-sr-only\">");
+            .Append("\" class=\"sr-only\">");
         table.Append("<caption>")
             .Append(HttpUtility.HtmlEncode(caption))
             .Append("</caption><thead><tr>");
